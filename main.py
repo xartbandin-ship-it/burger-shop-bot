@@ -20,7 +20,8 @@ def home():
     return "Burger Shop Bot is running!"
 
 def run_flask():
-    app.run(host='0.0.0.0', port=8080)
+    # use_reloader=False решает ошибку signal only works in main thread
+    app.run(host='0.0.0.0', port=8080, use_reloader=False)
 
 def keep_alive():
     t = Thread(target=run_flask)
