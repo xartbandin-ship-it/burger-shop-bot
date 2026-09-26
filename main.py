@@ -2,30 +2,22 @@ import os
 from datetime import datetime, timedelta
 import telebot
 from telebot.types import LabeledPrice, InlineKeyboardMarkup, InlineKeyboardButton
-from flask import Flask, request, jsonify
+from mcrcon import MCRcon
+from flask import Flask
 from threading import Thread
 
-# Загружаем настройки из облака
+# Загружаем настройки из облака Render
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
+RCON_HOST = os.environ.get("RCON_HOST")
+RCON_PORT = int(os.environ.get("RCON_PORT", 5520))
+RCON_PASSWORD = os.environ.get("RCON_PASSWORD")
 
-# Веб-сервер для 24/7 работы
+# Веб-сервер Flask для поддержания бота в сети 24/7 на Render
 app = Flask('')
-
-pending_rewards = {}
-user_subscriptions = {}  # Хранит срок окончания: {nickname_lower: {"tier": str, "expires_at": datetime}}
 
 @app.route('/')
 def home():
     return "Burger Shop Bot is running!"
-
-@app.route('/check-reward', methods=['GET'])
-def check_reward():
-    nickname = request.args.get('name', '').strip().lower()
-    for nick, tag in list(pending_rewards.items()):
-        if nick.lower() == nickname:
-            del pending_rewards[nick]
-            return jsonify({"status": "success", "tag": tag})
-    return jsonify({"status": "none"})
 
 def run_flask():
     app.run(host='0.0.0.0', port=8080)
@@ -36,12 +28,23 @@ def keep_alive():
 
 bot = telebot.TeleBot(BOT_TOKEN)
 user_nicknames = {}
+user_subscriptions = {}  # Хранит информацию о подписках игроков
 
 # ЦЕНЫ В TELEGRAM STARS
 PRICE_PLUS_1M = 100
 PRICE_PLUS_3M = 270   
 PRICE_PLUSPLUS_1M = 200
 PRICE_PLUSPLUS_3M = 540 
+
+
+# Функция отправки Bedrock-команды на сервер через RCON
+def send_bedrock_command(command):
+    try:
+        with MCRcon(RCON_HOST, RCON_PASSWORD, port=RCON_PORT) as mcr:
+            response = mcr.command(command)
+            return True, response
+    except Exception as e:
+        return False, str(e)
 
 
 @bot.message_handler(commands=['start', 'help'])
@@ -85,7 +88,7 @@ def show_main_menu(chat_id, nickname):
     )
 
 
-# --- СЕКРЕТНЫЙ ПРОМОКОД ---
+# --- СЕКРЕТНЫЙ ПРОМОКОД ДЛЯ ТЕСТОВ ---
 @bot.message_handler(commands=['promo'])
 def cmd_promo(message):
     bot.send_message(message.chat.id, "🔑 Введите секретный промокод разработчика:")
@@ -131,38 +134,36 @@ def callback_handler(call):
         bot.answer_callback_query(call.id)
         return
 
-    # Бесплатная выдача по промокоду (на 30 дней)
-    if call.data == "free_plus":
+    # Бесплатная выдача по промокоду через RCON
+    if call.data in ["free_plus", "free_plusplus"]:
         if not nickname:
             bot.answer_callback_query(call.id, "Сначала укажите ник!")
             return
-        expires = datetime.now() + timedelta(days=30)
-        user_subscriptions[nickname.lower()] = {"tier": "Plus [+]", "expires_at": expires}
-        pending_rewards[nickname] = "donor_plus"
-        bot.send_message(
-            chat_id, 
-            f"🛠️ **[БЕТА-ТЕСТ]** Привилегия [+] для игрока `{nickname}` выдана на 30 дней!",
-            parse_mode="Markdown"
-        )
+        
+        tag = "donor_plus" if call.data == "free_plus" else "donor_plus_plus"
+        tier_name = "Plus [+]" if call.data == "free_plus" else "PlusPlus [++]"
+        
+        command = f'tag "{nickname}" add {tag}'
+        success, rcon_resp = send_bedrock_command(command)
+
+        if success:
+            expires = datetime.now() + timedelta(days=30)
+            user_subscriptions[nickname.lower()] = {"tier": tier_name, "expires_at": expires}
+            bot.send_message(
+                chat_id, 
+                f"🛠️ **[БЕТА-ТЕСТ]** Привилегия `{tier_name}` успешно выдана игроку `{nickname}` на 30 дней!",
+                parse_mode="Markdown"
+            )
+        else:
+            bot.send_message(
+                chat_id,
+                f"⚠️ **Ошибка RCON!** Сервер не принял команду.\nПричина: `{rcon_resp}`",
+                parse_mode="Markdown"
+            )
         bot.answer_callback_query(call.id)
         return
 
-    if call.data == "free_plusplus":
-        if not nickname:
-            bot.answer_callback_query(call.id, "Сначала укажите ник!")
-            return
-        expires = datetime.now() + timedelta(days=30)
-        user_subscriptions[nickname.lower()] = {"tier": "PlusPlus [++]", "expires_at": expires}
-        pending_rewards[nickname] = "donor_plus_plus"
-        bot.send_message(
-            chat_id, 
-            f"🛠️ **[БЕТА-ТЕСТ]** Привилегия [++] для игрока `{nickname}` выдана на 30 дней!",
-            parse_mode="Markdown"
-        )
-        bot.answer_callback_query(call.id)
-        return
-
-    # ПРОВЕРКА ОСТАВШЕГОСЯ ВРЕМЕНИ ДОНАТА
+    # Проверка оставшегося времени доната
     if call.data == "check_status":
         if not nickname:
             bot.answer_callback_query(call.id, "⚠️ Сначала введите ник через /start!")
@@ -234,7 +235,7 @@ def callback_handler(call):
         bot.answer_callback_query(call.id, "⚠️ Сначала введите ник через /start!")
         return
 
-    # Инвойсы Telegram Stars
+    # Инвойсы Telegram Stars для покупки
     if call.data == "buy_plus_1m":
         prices = [LabeledPrice(label="Донат [+] 1 мес", amount=PRICE_PLUS_1M)]
         bot.send_invoice(chat_id=chat_id, title="Привилегия [+] (1 месяц)", description=f"Для {nickname}", invoice_payload="pay_plus_1m", provider_token="", currency="XTR", prices=prices)
@@ -256,19 +257,15 @@ def checkout_handler(pre_checkout_query):
     bot.answer_pre_checkout_query(pre_checkout_query.id, ok=True)
 
 
+# ВЫДАЧА ДОНАТА ЧЕРЕЗ RCON ПОСЛЕ УСПЕШНОЙ ОПЛАТЫ ЗВЕЗДАМИ
 @bot.message_handler(content_types=['successful_payment'])
 def success_payment(message):
     chat_id = message.chat.id
     nickname = user_nicknames.get(chat_id, "Игрок")
     payload = message.successful_payment.invoice_payload
 
-    # Определяем срок в днях
-    if "1m" in payload:
-        days = 30
-    else:
-        days = 90
-
-    # Определяем уровень доната
+    days = 90 if "3m" in payload else 30
+    
     if "plusplus" in payload:
         tag = "donor_plus_plus"
         tier_name = "PlusPlus [++]"
@@ -276,18 +273,24 @@ def success_payment(message):
         tag = "donor_plus"
         tier_name = "Plus [+]"
 
-    expires = datetime.now() + timedelta(days=days)
-    user_subscriptions[nickname.lower()] = {"tier": tier_name, "expires_at": expires}
-    pending_rewards[nickname] = tag
+    command = f'tag "{nickname}" add {tag}'
+    success, rcon_resp = send_bedrock_command(command)
 
-    bot.send_message(
-        chat_id,
-        f"✅ **Оплата прошла успешно!**\n\n"
-        f"Игрок: `{nickname}`\n"
-        f"Донат: **{tier_name}** активирован на `{days} дн.`\n"
-        f"Спасибо за поддержку! 🍔",
-        parse_mode="Markdown"
-    )
+    if success:
+        expires = datetime.now() + timedelta(days=days)
+        user_subscriptions[nickname.lower()] = {"tier": tier_name, "expires_at": expires}
+        bot.send_message(
+            chat_id,
+            f"✅ **Оплата прошла успешно!**\n\n"
+            f"Игрок: `{nickname}`\n"
+            f"Привилегия **{tier_name}** выдана на `{days} дн.` прямо в игру! Спасибо за поддержку! 🍔",
+            parse_mode="Markdown"
+        )
+    else:
+        bot.send_message(
+            chat_id,
+            f"⚠️ Оплата прошла, но сервер не ответил по RCON.\nОшибка: `{rcon_resp}`\nАдминистратор выдаст привилегию вручную."
+        )
 
 
 if __name__ == "__main__":
