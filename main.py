@@ -6,6 +6,9 @@ from mcrcon import MCRcon
 from flask import Flask
 from threading import Thread
 
+# Версия бота для проверки обновления на Render
+BOT_VERSION = "v3.5-FIXED"
+
 # Загружаем настройки из облака Render
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 RCON_HOST = os.environ.get("RCON_HOST")
@@ -17,10 +20,10 @@ app = Flask('')
 
 @app.route('/')
 def home():
-    return "Burger Shop Bot is running!"
+    return f"Burger Shop Bot is running! Version: {BOT_VERSION}"
 
 def run_flask():
-    # use_reloader=False решает ошибку signal only works in main thread
+    # use_reloader=False полностью решает ошибку signal only works in main thread
     app.run(host='0.0.0.0', port=8080, use_reloader=False)
 
 def keep_alive():
@@ -52,8 +55,10 @@ def send_bedrock_command(command):
 def cmd_start(message):
     bot.send_message(
         message.chat.id,
-        "Привет! 🍔 Добро пожаловать в магазин сервера **Burger Empire** (`burgersmp.org`).\n\n"
-        "Пожалуйста, напиши свой **точный никнейм** в Minecraft, чтобы продолжить:"
+        f"Привет! 🍔 Добро пожаловать в магазин сервера **Burger Empire** (`burgersmp.org`).\n"
+        f"⚙️ *Версия бота:* `{BOT_VERSION}`\n\n"
+        "Пожалуйста, напиши свой **точный никнейм** в Minecraft, чтобы продолжить:",
+        parse_mode="Markdown"
     )
     bot.register_next_step_handler(message, save_nickname)
 
