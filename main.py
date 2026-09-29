@@ -6,14 +6,18 @@ from telebot.types import LabeledPrice, InlineKeyboardMarkup, InlineKeyboardButt
 from flask import Flask, request, jsonify
 from threading import Thread
 
-BOT_VERSION = "v4.3-SECURE-ADMIN"
+BOT_VERSION = "v4.5-FINAL"
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
+
+# Настройки PebbleHost API
+PEBBLE_API_KEY = os.environ.get("PEBBLE_API_KEY")
+PEBBLE_SERVER_ID = os.environ.get("PEBBLE_SERVER_ID", "1620279")
 
 app = Flask('')
 
-# Очередь на выдачу: хранит ник (в нижнем регистре) и тег доната
 pending_rewards = {}
 user_subscriptions = {}
+admin_targets = {}  # Сохраняет ник игрока, которым управляет админ
 
 @app.route('/')
 def home():
@@ -40,11 +44,31 @@ Thread(target=run_flask, daemon=True).start()
 bot = telebot.TeleBot(BOT_TOKEN)
 user_nicknames = {}
 
-# ЦЕНЫ В TELEGRAM STARS
 PRICE_PLUS_1M = 100
 PRICE_PLUS_3M = 270   
 PRICE_PLUSPLUS_1M = 200
 PRICE_PLUSPLUS_3M = 540 
+
+def send_pebble_console_command(command):
+    """Отправка команд в консоль сервера через PebbleHost API"""
+    if not PEBBLE_API_KEY:
+        print("❌ Ошибка: PEBBLE_API_KEY не задан в переменных окружения Render!")
+        return False
+    
+    url = f"https://panel.pebblehost.com/api/client/servers/{PEBBLE_SERVER_ID}/command"
+    headers = {
+        "Authorization": f"Bearer {PEBBLE_API_KEY}",
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+    }
+    
+    try:
+        response = requests.post(url, json={"command": command}, headers=headers, timeout=10)
+        return response.status_code in [200, 204]
+    except Exception as e:
+        print(f"❌ Исключение при запросе к PebbleHost API: {e}")
+        return False
+
 
 @bot.message_handler(commands=['start', 'help'])
 def cmd_start(message):
@@ -87,61 +111,83 @@ def cmd_promo(message):
 def process_promo_input(message):
     code = message.text.strip()
     chat_id = message.chat.id
-    nickname = user_nicknames.get(chat_id)
     
-    # Получаем юзернейм пользователя из Telegram (без @)
     tg_username = message.from_user.username
     if tg_username:
         tg_username = tg_username.lower()
 
     if code == "dev324":
-        # Строгая привязка промокода к твоему аккаунту Telegram
         if tg_username != "meburger34":
             bot.send_message(chat_id, "❌ У вас нет прав для использования промокодов разработчика.")
             return
             
-        if not nickname:
-            bot.send_message(chat_id, "❌ Сначала укажите свой ник в Minecraft через /start!")
-            return
-        
-        markup = InlineKeyboardMarkup()
-        markup.add(InlineKeyboardButton("🎁 Выдать [+] (30 дн)", callback_data="free_plus"))
-        markup.add(InlineKeyboardButton("🎁 Выдать [++] (30 дн)", callback_data="free_plusplus"))
-        markup.add(InlineKeyboardButton("🏠 На главную", callback_data="back_menu"))
-        
-        perks_text = (
-            "✅ **Промокод разработчика принят!**\n\n"
-            "💎 **Привилегия [+] (Plus):**\n"
-            "• Голубой префикс `[+]` в чате\n"
-            "• 5 точек дома\n"
-            "• RTP на 25 000 блоков\n"
-            "• Лимит клана: 6 игроков\n"
-            "• Кик из клана для лидера\n\n"
-            "👑 **Привилегия [++] (PlusPlus):**\n"
-            "• Золотой префикс `[++]` в чате\n"
-            "• 7 точек дома\n"
-            "• RTP на 30 000 блоков\n"
-            "• RTP в Энде (`!rtpend`)\n"
-            "• ТП по точным координатам (`!tp X Z`)\n"
-            "• Команда самоубийства (`!kill`)\n"
-            "• База клана (`!tribe sethome` / `home`)\n"
-            "• Лимит клана: 8 игроков\n\n"
-            "Выберите привилегию для выдачи:"
-        )
-        
-        bot.send_message(
-            chat_id,
-            perks_text,
-            reply_markup=markup,
-            parse_mode="Markdown"
-        )
+        bot.send_message(chat_id, "⚙️ Введите точный ник игрока в Minecraft, которым хотите управлять:")
+        bot.register_next_step_handler(message, process_admin_target_nick)
     else:
         bot.send_message(chat_id, "❌ Неверный промокод.")
+
+def process_admin_target_nick(message):
+    target_nick = message.text.strip()
+    chat_id = message.chat.id
+    
+    if not target_nick or " " in target_nick:
+        bot.send_message(chat_id, "❌ Некорректный ник. Введите ник игрока еще раз:")
+        bot.register_next_step_handler(message, process_admin_target_nick)
+        return
+        
+    admin_targets[chat_id] = target_nick
+    
+    markup = InlineKeyboardMarkup()
+    markup.add(InlineKeyboardButton(f"🎁 Выдать [+] для {target_nick}", callback_data="admin_give_plus"))
+    markup.add(InlineKeyboardButton(f"🎁 Выдать [++] для {target_nick}", callback_data="admin_give_plusplus"))
+    markup.add(InlineKeyboardButton(f"❌ Снять все донаты с {target_nick}", callback_data="admin_remove_donuts"))
+    markup.add(InlineKeyboardButton("🏠 На главную", callback_data="back_menu"))
+    
+    bot.send_message(
+        chat_id,
+        f"🛠️ **Панель управления игроком:** `{target_nick}`\nВыберите нужное действие:",
+        reply_markup=markup,
+        parse_mode="Markdown"
+    )
 
 @bot.callback_query_handler(func=lambda call: True)
 def callback_handler(call):
     chat_id = call.message.chat.id
     nickname = user_nicknames.get(chat_id)
+    target_nick = admin_targets.get(chat_id)
+
+    if call.data == "admin_give_plus":
+        if not target_nick:
+            bot.answer_callback_query(call.id, "Сначала укажите ник игрока!")
+            return
+        send_pebble_console_command(f'tag "{target_nick}" add donor_plus')
+        pending_rewards[target_nick.lower()] = "donor_plus"
+        bot.send_message(chat_id, f"✅ Игроку `{target_nick}` выдан ранг [+]!", parse_mode="Markdown")
+        bot.answer_callback_query(call.id)
+        return
+
+    if call.data == "admin_give_plusplus":
+        if not target_nick:
+            bot.answer_callback_query(call.id, "Сначала укажите ник игрока!")
+            return
+        send_pebble_console_command(f'tag "{target_nick}" add donor_plus_plus')
+        pending_rewards[target_nick.lower()] = "donor_plus_plus"
+        bot.send_message(chat_id, f"✅ Игроку `{target_nick}` выдан ранг [++]!", parse_mode="Markdown")
+        bot.answer_callback_query(call.id)
+        return
+
+    if call.data == "admin_remove_donuts":
+        if not target_nick:
+            bot.answer_callback_query(call.id, "Сначала укажите ник игрока!")
+            return
+        send_pebble_console_command(f'tag "{target_nick}" remove donor_plus')
+        send_pebble_console_command(f'tag "{target_nick}" remove donor_plus_plus')
+        pending_rewards.pop(target_nick.lower(), None)
+        user_subscriptions.pop(target_nick.lower(), None)
+        
+        bot.send_message(chat_id, f"❌ Все донаты сняты с игрока `{target_nick}`!", parse_mode="Markdown")
+        bot.answer_callback_query(call.id)
+        return
 
     if call.data == "menu_more":
         markup = InlineKeyboardMarkup()
@@ -167,26 +213,6 @@ def callback_handler(call):
     if call.data == "enter_promo":
         bot.send_message(chat_id, "🔑 Введите промокод:")
         bot.register_next_step_handler(call.message, process_promo_input)
-        bot.answer_callback_query(call.id)
-        return
-
-    if call.data in ["free_plus", "free_plusplus"]:
-        if not nickname:
-            bot.answer_callback_query(call.id, "Укажите ник!")
-            return
-        
-        tag = "donor_plus" if call.data == "free_plus" else "donor_plus_plus"
-        tier_name = "Plus [+]" if call.data == "free_plus" else "PlusPlus [++]"
-        
-        pending_rewards[nickname.lower()] = tag
-        expires = datetime.now() + timedelta(days=30)
-        user_subscriptions[nickname.lower()] = {"tier": tier_name, "expires_at": expires}
-
-        bot.send_message(
-            chat_id, 
-            f"🛠️ В очередь добавлено: `{tier_name}`\nЗайдите на сервер и введите `!claim`.",
-            parse_mode="Markdown"
-        )
         bot.answer_callback_query(call.id)
         return
 
