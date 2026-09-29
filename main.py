@@ -6,7 +6,7 @@ from telebot.types import LabeledPrice, InlineKeyboardMarkup, InlineKeyboardButt
 from flask import Flask, request, jsonify
 from threading import Thread
 
-BOT_VERSION = "v4.5-FINAL"
+BOT_VERSION = "v4.6-FIXED-REMOVE"
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 
 # Настройки PebbleHost API
@@ -17,7 +17,7 @@ app = Flask('')
 
 pending_rewards = {}
 user_subscriptions = {}
-admin_targets = {}  # Сохраняет ник игрока, которым управляет админ
+admin_targets = {}  # Хранит ник игрока, которым управляет админ
 
 @app.route('/')
 def home():
@@ -50,7 +50,7 @@ PRICE_PLUSPLUS_1M = 200
 PRICE_PLUSPLUS_3M = 540 
 
 def send_pebble_console_command(command):
-    """Отправка команд в консоль сервера через PebbleHost API"""
+    """Надежная отправка команд в консоль сервера через PebbleHost API"""
     if not PEBBLE_API_KEY:
         print("❌ Ошибка: PEBBLE_API_KEY не задан в переменных окружения Render!")
         return False
@@ -64,6 +64,7 @@ def send_pebble_console_command(command):
     
     try:
         response = requests.post(url, json={"command": command}, headers=headers, timeout=10)
+        print(f"PebbleHost Response ({command}): {response.status_code} - {response.text}")
         return response.status_code in [200, 204]
     except Exception as e:
         print(f"❌ Исключение при запросе к PebbleHost API: {e}")
@@ -162,7 +163,7 @@ def callback_handler(call):
             return
         send_pebble_console_command(f'tag "{target_nick}" add donor_plus')
         pending_rewards[target_nick.lower()] = "donor_plus"
-        bot.send_message(chat_id, f"✅ Игроку `{target_nick}` выдан ранг [+]!", parse_mode="Markdown")
+        bot.send_message(chat_id, f"✅ Игроку `{target_nick}` выдан ранг [+]! (Игрок может прописать !claim)", parse_mode="Markdown")
         bot.answer_callback_query(call.id)
         return
 
@@ -172,7 +173,7 @@ def callback_handler(call):
             return
         send_pebble_console_command(f'tag "{target_nick}" add donor_plus_plus')
         pending_rewards[target_nick.lower()] = "donor_plus_plus"
-        bot.send_message(chat_id, f"✅ Игроку `{target_nick}` выдан ранг [++]!", parse_mode="Markdown")
+        bot.send_message(chat_id, f"✅ Игроку `{target_nick}` выдан ранг [++]! (Игрок может прописать !claim)", parse_mode="Markdown")
         bot.answer_callback_query(call.id)
         return
 
@@ -180,12 +181,15 @@ def callback_handler(call):
         if not target_nick:
             bot.answer_callback_query(call.id, "Сначала укажите ник игрока!")
             return
+        # Принудительно удаляем оба тега через консоль сервера
         send_pebble_console_command(f'tag "{target_nick}" remove donor_plus')
         send_pebble_console_command(f'tag "{target_nick}" remove donor_plus_plus')
+        
+        # Также убираем из очереди и подписок
         pending_rewards.pop(target_nick.lower(), None)
         user_subscriptions.pop(target_nick.lower(), None)
         
-        bot.send_message(chat_id, f"❌ Все донаты сняты с игрока `{target_nick}`!", parse_mode="Markdown")
+        bot.send_message(chat_id, f"❌ Все донаты [+] и [++] успешно сняты с игрока `{target_nick}`!", parse_mode="Markdown")
         bot.answer_callback_query(call.id)
         return
 
@@ -246,7 +250,7 @@ def callback_handler(call):
         
         bot.edit_message_text(
             chat_id=chat_id, message_id=call.message.message_id, 
-            text="💎 **Привилегия [+] (Plus):**\n• 5 домов\n• RTP 25k\n• Префикс [+]\n\n*⚠️ Товар цифровой, возврату и переносу при вайпе не подлежит.*\n\nВыберите срок:", 
+            text="💎 **Привилегия [+] (Plus):**\n• 5 домов\n• RTP 25k\n• Префикс [+]\n\n*⚠️️ Товар цифровой, возврату и переносу при вайпе не подлежит.*\n\nВыберите срок:", 
             reply_markup=markup, parse_mode="Markdown"
         )
         bot.answer_callback_query(call.id)
@@ -260,7 +264,7 @@ def callback_handler(call):
         
         bot.edit_message_text(
             chat_id=chat_id, message_id=call.message.message_id, 
-            text="👑 **Привилегия [++] (PlusPlus):**\n• 7 домов\n• RTP 30k\n• Префикс [++]\n\n*⚠️ Товар цифровой, возврату и переносу при вайпе не подлежит.*\n\nВыберите срок:", 
+            text="👑 **Привилегия [++] (PlusPlus):**\n• 7 домов\n• RTP 30k\n• Префикс [++]\n\n*⚠️️ Товар цифровой, возврату и переносу при вайпе не подлежит.*\n\nВыберите срок:", 
             reply_markup=markup, parse_mode="Markdown"
         )
         bot.answer_callback_query(call.id)
