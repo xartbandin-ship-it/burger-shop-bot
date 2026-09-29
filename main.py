@@ -6,11 +6,12 @@ from telebot.types import LabeledPrice, InlineKeyboardMarkup, InlineKeyboardButt
 from flask import Flask, request, jsonify
 from threading import Thread
 
-BOT_VERSION = "v4.2-CLEAN-UI"
+BOT_VERSION = "v4.3-SECURE-ADMIN"
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 
 app = Flask('')
 
+# Очередь на выдачу: хранит ник (в нижнем регистре) и тег доната
 pending_rewards = {}
 user_subscriptions = {}
 
@@ -39,6 +40,7 @@ Thread(target=run_flask, daemon=True).start()
 bot = telebot.TeleBot(BOT_TOKEN)
 user_nicknames = {}
 
+# ЦЕНЫ В TELEGRAM STARS
 PRICE_PLUS_1M = 100
 PRICE_PLUS_3M = 270   
 PRICE_PLUSPLUS_1M = 200
@@ -66,10 +68,8 @@ def save_nickname(message):
 
 def show_main_menu(chat_id, nickname):
     markup = InlineKeyboardMarkup()
-    # Главные кнопки покупки (по одной в ряд для широкого текста)
     markup.add(InlineKeyboardButton("💎 Купить Донат [+] (100 ⭐)", callback_data="menu_plus"))
     markup.add(InlineKeyboardButton("👑 Купить Донат [++] (200 ⭐)", callback_data="menu_plusplus"))
-    # Кнопка дополнительных настроек
     markup.add(InlineKeyboardButton("⚙️ Другое / Настройки", callback_data="menu_more"))
 
     bot.send_message(
@@ -88,10 +88,20 @@ def process_promo_input(message):
     code = message.text.strip()
     chat_id = message.chat.id
     nickname = user_nicknames.get(chat_id)
+    
+    # Получаем юзернейм пользователя из Telegram (без @)
+    tg_username = message.from_user.username
+    if tg_username:
+        tg_username = tg_username.lower()
 
-    if code == "Burgerbetacheckdev013":
+    if code == "dev324":
+        # Строгая привязка промокода к твоему аккаунту Telegram
+        if tg_username != "meburger34":
+            bot.send_message(chat_id, "❌ У вас нет прав для использования промокодов разработчика.")
+            return
+            
         if not nickname:
-            bot.send_message(chat_id, "❌ Сначала укажите ник в Minecraft через /start!")
+            bot.send_message(chat_id, "❌ Сначала укажите свой ник в Minecraft через /start!")
             return
         
         markup = InlineKeyboardMarkup()
@@ -99,9 +109,29 @@ def process_promo_input(message):
         markup.add(InlineKeyboardButton("🎁 Выдать [++] (30 дн)", callback_data="free_plusplus"))
         markup.add(InlineKeyboardButton("🏠 На главную", callback_data="back_menu"))
         
+        perks_text = (
+            "✅ **Промокод разработчика принят!**\n\n"
+            "💎 **Привилегия [+] (Plus):**\n"
+            "• Голубой префикс `[+]` в чате\n"
+            "• 5 точек дома\n"
+            "• RTP на 25 000 блоков\n"
+            "• Лимит клана: 6 игроков\n"
+            "• Кик из клана для лидера\n\n"
+            "👑 **Привилегия [++] (PlusPlus):**\n"
+            "• Золотой префикс `[++]` в чате\n"
+            "• 7 точек дома\n"
+            "• RTP на 30 000 блоков\n"
+            "• RTP в Энде (`!rtpend`)\n"
+            "• ТП по точным координатам (`!tp X Z`)\n"
+            "• Команда самоубийства (`!kill`)\n"
+            "• База клана (`!tribe sethome` / `home`)\n"
+            "• Лимит клана: 8 игроков\n\n"
+            "Выберите привилегию для выдачи:"
+        )
+        
         bot.send_message(
             chat_id,
-            "✅ **Промокод принят!** Выберите привилегию:",
+            perks_text,
             reply_markup=markup,
             parse_mode="Markdown"
         )
@@ -113,7 +143,6 @@ def callback_handler(call):
     chat_id = call.message.chat.id
     nickname = user_nicknames.get(chat_id)
 
-    # --- РАЗДЕЛ "ДРУГОЕ" ---
     if call.data == "menu_more":
         markup = InlineKeyboardMarkup()
         markup.add(InlineKeyboardButton("⏳ Статус доната", callback_data="check_status"))
@@ -183,7 +212,6 @@ def callback_handler(call):
         bot.answer_callback_query(call.id)
         return
 
-    # --- МЕНЮ ПОКУПКИ ---
     if call.data == "menu_plus":
         markup = InlineKeyboardMarkup()
         markup.add(InlineKeyboardButton("1 месяц (100 ⭐)", callback_data="buy_plus_1m"))
@@ -220,7 +248,6 @@ def callback_handler(call):
         bot.answer_callback_query(call.id)
         return
 
-    # --- ОПЛАТА ---
     if not nickname:
         bot.answer_callback_query(call.id, "⚠️ Сначала введите ник!")
         return
