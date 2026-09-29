@@ -3,23 +3,35 @@ import requests
 from datetime import datetime, timedelta
 import telebot
 from telebot.types import LabeledPrice, InlineKeyboardMarkup, InlineKeyboardButton
-from flask import Flask
+from flask import Flask, request, jsonify
 from threading import Thread
 
-BOT_VERSION = "v3.9-AUTO"
+BOT_VERSION = "v4.1-PRO-UX"
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
-
-# Настройки PebbleHost API
-PEBBLE_API_KEY = os.environ.get("PEBBLE_API_KEY")
-PEBBLE_SERVER_ID = os.environ.get("PEBBLE_SERVER_ID", "1620279")
 
 app = Flask('')
 
+# Очередь на выдачу: хранит ник (в нижнем регистре) и тег доната
+pending_rewards = {}
 user_subscriptions = {}
 
 @app.route('/')
 def home():
     return f"Burger Shop Bot is running! Version: {BOT_VERSION}"
+
+# Страница для сервера Minecraft (проверка облачной очереди)
+@app.route('/check-reward', methods=['GET'])
+def check_reward():
+    name = request.args.get('name', '').strip().lower()
+    if not name:
+        return jsonify({"status": "error", "message": "No name provided"})
+    
+    if name in pending_rewards:
+        tag = pending_rewards.pop(name)
+        print(f"🎁 Игрок {name} забрал свою награду: {tag}")
+        return jsonify({"status": "success", "tag": tag})
+    
+    return jsonify({"status": "none"})
 
 def run_flask():
     app.run(host='0.0.0.0', port=8080, use_reloader=False)
@@ -34,37 +46,6 @@ PRICE_PLUS_1M = 100
 PRICE_PLUS_3M = 270   
 PRICE_PLUSPLUS_1M = 200
 PRICE_PLUSPLUS_3M = 540 
-
-def send_pebble_command(nickname, tag):
-    """Автоматическая отправка команды в консоль Minecraft сервера через PebbleHost API"""
-    if not PEBBLE_API_KEY:
-        print("❌ Ошибка: PEBBLE_API_KEY не задан в переменных окружения Render!")
-        return False
-    
-    url = f"https://panel.pebblehost.com/api/client/servers/{PEBBLE_SERVER_ID}/command"
-    headers = {
-        "Authorization": f"Bearer {PEBBLE_API_KEY}",
-        "Content-Type": "application/json",
-        "Accept": "application/json"
-    }
-    
-    # Команда выдачи тега игроку
-    command = f'tag "{nickname}" add {tag}'
-    
-    try:
-        response = requests.post(url, json={"command": command}, headers=headers, timeout=10)
-        if response.status_code in [200, 204]:
-            # Широковещательное сообщение в чат сервера с экранированным символом параграфа (\u00a7)
-            broadcast = f'tellraw @a {{"rawtext":[{{"text":"\\u00a7a[BurgerEmpire] \\u00a7eИгрок \\u00a7b{nickname} \\u00a7eуспешно купил привилегию! Спасибо за поддержку! 🍔"}}]}}'
-            requests.post(url, json={"command": broadcast}, headers=headers, timeout=10)
-            print(f"✅ Успешно выдано через API для {nickname} (тег: {tag})")
-            return True
-        else:
-            print(f"❌ Ошибка PebbleHost API: {response.status_code} - {response.text}")
-            return False
-    except Exception as e:
-        print(f"❌ Исключение при запросе к PebbleHost API: {e}")
-        return False
 
 
 @bot.message_handler(commands=['start', 'help'])
@@ -94,14 +75,14 @@ def show_main_menu(chat_id, nickname):
     markup.add(
         InlineKeyboardButton("💎 Купить Донат [+] (100 ⭐)", callback_data="menu_plus"),
         InlineKeyboardButton("👑 Купить Донат [++] (200 ⭐)", callback_data="menu_plusplus"),
-        InlineKeyboardButton("⏳ Проверить срок моего доната", callback_data="check_status"),
+        InlineKeyboardButton("⏳ Проверить срок доната", callback_data="check_status"),
         InlineKeyboardButton("🔑 Ввести промокод", callback_data="enter_promo"),
         InlineKeyboardButton("✏️ Сменить ник", callback_data="change_nick")
     )
 
     bot.send_message(
         chat_id,
-        f"👤 Твой ник: **{nickname}**\n\nВыбери нужный раздел в меню:",
+        f"👤 Твой ник в игре: **{nickname}**\n\nВыбери нужный раздел в меню:",
         reply_markup=markup,
         parse_mode="Markdown"
     )
@@ -125,7 +106,8 @@ def process_promo_input(message):
         markup = InlineKeyboardMarkup()
         markup.add(
             InlineKeyboardButton("🎁 [+] Бесплатно (30 дней)", callback_data="free_plus"),
-            InlineKeyboardButton("🎁 [++] Бесплатно (30 дней)", callback_data="free_plusplus")
+            InlineKeyboardButton("🎁 [++] Бесплатно (30 дней)", callback_data="free_plusplus"),
+            InlineKeyboardButton("🏠 На главную", callback_data="back_menu")
         )
         bot.send_message(
             chat_id,
@@ -162,13 +144,14 @@ def callback_handler(call):
         tag = "donor_plus" if call.data == "free_plus" else "donor_plus_plus"
         tier_name = "Plus [+]" if call.data == "free_plus" else "PlusPlus [++]"
         
-        send_pebble_command(nickname, tag)
+        pending_rewards[nickname.lower()] = tag
+        
         expires = datetime.now() + timedelta(days=30)
         user_subscriptions[nickname.lower()] = {"tier": tier_name, "expires_at": expires}
 
         bot.send_message(
             chat_id, 
-            f"🛠️ **[БЕТА-ТЕСТ]** Привилегия `{tier_name}` для игрока `{nickname}` успешно выдана на сервер!",
+            f"🛠️ **[БЕТА-ТЕСТ]** Привилегия `{tier_name}` добавлена в очередь!\nЗайдите на сервер (`burgersmp.org`) и введите команду `!claim`.",
             parse_mode="Markdown"
         )
         bot.answer_callback_query(call.id)
@@ -180,13 +163,17 @@ def callback_handler(call):
             return
         
         sub = user_subscriptions.get(nickname.lower())
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("🏠 На главную", callback_data="back_menu"))
+
         if not sub or datetime.now() > sub["expires_at"]:
-            bot.send_message(chat_id, f"❌ У игрока `{nickname}` нет активных привилегий.", parse_mode="Markdown")
+            bot.send_message(chat_id, f"❌ У игрока `{nickname}` нет активных привилегий.", reply_markup=markup, parse_mode="Markdown")
         else:
             left = sub["expires_at"] - datetime.now()
             bot.send_message(
                 chat_id,
                 f"⏳ **Статус для `{nickname}`:**\n• Уровень: **{sub['tier']}**\n• Осталось: **{left.days} дн. {left.seconds // 3600} ч.**",
+                reply_markup=markup,
                 parse_mode="Markdown"
             )
         bot.answer_callback_query(call.id)
@@ -197,9 +184,13 @@ def callback_handler(call):
         markup.add(
             InlineKeyboardButton("1 месяц (100 ⭐)", callback_data="buy_plus_1m"),
             InlineKeyboardButton("3 месяца (270 ⭐)", callback_data="buy_plus_3m"),
-            InlineKeyboardButton("⬅️ Назад", callback_data="back_menu")
+            InlineKeyboardButton("🏠 На главную", callback_data="back_menu")
         )
-        bot.edit_message_text(chat_id=chat_id, message_id=call.message.message_id, text="💎 **Привилегия [+] (Plus):**\n• 5 домов\n• RTP 25k\n• Префикс [+]\n\nВыбери срок:", reply_markup=markup, parse_mode="Markdown")
+        bot.edit_message_text(
+            chat_id=chat_id, message_id=call.message.message_id, 
+            text="💎 **Привилегия [+] (Plus):**\n• 5 домов\n• RTP 25k\n• Префикс [+]\n\n*⚠️ Покупая привилегию, вы соглашаетесь с тем, что товар цифровой, возврату не подлежит и в случае ресета/вайпа сервера не компенсируется.*\n\nВыбери срок:", 
+            reply_markup=markup, parse_mode="Markdown"
+        )
         bot.answer_callback_query(call.id)
         return
 
@@ -208,15 +199,21 @@ def callback_handler(call):
         markup.add(
             InlineKeyboardButton("1 месяц (200 ⭐)", callback_data="buy_plusplus_1m"),
             InlineKeyboardButton("3 месяца (540 ⭐)", callback_data="buy_plusplus_3m"),
-            InlineKeyboardButton("⬅️ Назад", callback_data="back_menu")
+            InlineKeyboardButton("🏠 На главную", callback_data="back_menu")
         )
-        bot.edit_message_text(chat_id=chat_id, message_id=call.message.message_id, text="👑 **Привилегия [++] (PlusPlus):**\n• 7 домов\n• RTP 30k\n• Префикс [++]\n\nВыбери срок:", reply_markup=markup, parse_mode="Markdown")
+        bot.edit_message_text(
+            chat_id=chat_id, message_id=call.message.message_id, 
+            text="👑 **Привилегия [++] (PlusPlus):**\n• 7 домов\n• RTP 30k\n• Префикс [++]\n\n*⚠️ Покупая привилегию, вы соглашаетесь с тем, что товар цифровой, возврату не подлежит и в случае ресета/вайпа сервера не компенсируется.*\n\nВыбери срок:", 
+            reply_markup=markup, parse_mode="Markdown"
+        )
         bot.answer_callback_query(call.id)
         return
 
     if call.data == "back_menu":
         if nickname:
             show_main_menu(chat_id, nickname)
+        else:
+            bot.send_message(chat_id, "Введите ваш ник в Minecraft с помощью команды /start")
         bot.answer_callback_query(call.id)
         return
 
@@ -224,14 +221,31 @@ def callback_handler(call):
         bot.answer_callback_query(call.id, "⚠️ Сначала введите ник!")
         return
 
+    # Отправка инвойсов с прописанным в описании дисклеймером (для защиты от chargeback)
     if call.data == "buy_plus_1m":
-        bot.send_invoice(chat_id=chat_id, title="Донат [+] 1 мес", description=f"Для {nickname}", invoice_payload="pay_plus_1m", provider_token="", currency="XTR", prices=[LabeledPrice("Донат", PRICE_PLUS_1M)])
+        bot.send_invoice(
+            chat_id=chat_id, title="Донат [+] (1 мес)", 
+            description=f"Для {nickname}. Цифровой товар. Возврату и компенсации при вайпе не подлежит.", 
+            invoice_payload="pay_plus_1m", provider_token="", currency="XTR", prices=[LabeledPrice("Донат", PRICE_PLUS_1M)]
+        )
     elif call.data == "buy_plus_3m":
-        bot.send_invoice(chat_id=chat_id, title="Донат [+] 3 мес", description=f"Для {nickname}", invoice_payload="pay_plus_3m", provider_token="", currency="XTR", prices=[LabeledPrice("Донат", PRICE_PLUS_3M)])
+        bot.send_invoice(
+            chat_id=chat_id, title="Донат [+] (3 мес)", 
+            description=f"Для {nickname}. Цифровой товар. Возврату и компенсации при вайпе не подлежит.", 
+            invoice_payload="pay_plus_3m", provider_token="", currency="XTR", prices=[LabeledPrice("Донат", PRICE_PLUS_3M)]
+        )
     elif call.data == "buy_plusplus_1m":
-        bot.send_invoice(chat_id=chat_id, title="Донат [++] 1 мес", description=f"Для {nickname}", invoice_payload="pay_plusplus_1m", provider_token="", currency="XTR", prices=[LabeledPrice("Донат", PRICE_PLUSPLUS_1M)])
+        bot.send_invoice(
+            chat_id=chat_id, title="Донат [++] (1 мес)", 
+            description=f"Для {nickname}. Цифровой товар. Возврату и компенсации при вайпе не подлежит.", 
+            invoice_payload="pay_plusplus_1m", provider_token="", currency="XTR", prices=[LabeledPrice("Донат", PRICE_PLUSPLUS_1M)]
+        )
     elif call.data == "buy_plusplus_3m":
-        bot.send_invoice(chat_id=chat_id, title="Донат [++] 3 мес", description=f"Для {nickname}", invoice_payload="pay_plusplus_3m", provider_token="", currency="XTR", prices=[LabeledPrice("Донат", PRICE_PLUSPLUS_3M)])
+        bot.send_invoice(
+            chat_id=chat_id, title="Донат [++] (3 мес)", 
+            description=f"Для {nickname}. Цифровой товар. Возврату и компенсации при вайпе не подлежит.", 
+            invoice_payload="pay_plusplus_3m", provider_token="", currency="XTR", prices=[LabeledPrice("Донат", PRICE_PLUSPLUS_3M)]
+        )
     
     bot.answer_callback_query(call.id)
 
@@ -255,15 +269,22 @@ def success_payment(message):
         tag = "donor_plus"
         tier_name = "Plus [+]"
 
-    # Автоматическая выдача через API PebbleHost
-    send_pebble_command(nickname, tag)
+    # Сохраняем в очередь для выдачи через !claim
+    pending_rewards[nickname.lower()] = tag
 
     expires = datetime.now() + timedelta(days=days)
     user_subscriptions[nickname.lower()] = {"tier": tier_name, "expires_at": expires}
 
+    markup = InlineKeyboardMarkup()
+    markup.add(InlineKeyboardButton("🏠 На главную", callback_data="back_menu"))
+
     bot.send_message(
         chat_id,
-        f"✅ **Оплата прошла успешно!**\nИгрок: `{nickname}`\nПривилегия **{tier_name}** на `{days} дн.` автоматически выдана на сервер! Спасибо за покупку! 🍔",
+        f"✅ **Оплата прошла успешно!**\n\n"
+        f"👤 Игрок: `{nickname}`\n"
+        f"💎 Привилегия: **{tier_name}**\n\n"
+        f"🚀 Зайдите на сервер `burgersmp.org` и введите команду **`!claim`**, чтобы забрать свой донат!",
+        reply_markup=markup,
         parse_mode="Markdown"
     )
 
