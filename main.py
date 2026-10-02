@@ -6,13 +6,13 @@ from telebot.types import LabeledPrice, InlineKeyboardMarkup, InlineKeyboardButt
 from flask import Flask, request, jsonify
 from threading import Thread
 
-BOT_VERSION = "v5.0-CLAIM-API"
+BOT_VERSION = "v5.2-PERKS-FULL"
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 
 app = Flask('')
 
-pending_rewards = {}   # Очередь на выдачу доната при !claim или входе
-pending_removals = {}  # Очередь на снятие доната
+pending_rewards = {}   # Очередь на выдачу доната
+pending_removals = {}  # Очередь на снятие всех донатов
 user_subscriptions = {}
 admin_targets = {}
 
@@ -41,7 +41,7 @@ def check_removal():
     
     if name in pending_removals:
         pending_removals.pop(name)
-        print(f"❌ Игрок {name} аннулировал донат")
+        print(f"❌ Игрок {name} очистил донаты по запросу администратора")
         return jsonify({"status": "remove"})
     
     return jsonify({"status": "none"})
@@ -150,7 +150,7 @@ def callback_handler(call):
             bot.answer_callback_query(call.id, "Сначала укажите ник игрока!")
             return
         pending_rewards[target_nick.lower()] = "donor_plus"
-        bot.send_message(chat_id, f"✅ Для `{target_nick}` добавлена награда [+] в очередь! Игрок может прописать !claim", parse_mode="Markdown")
+        bot.send_message(chat_id, f"✅ Для `{target_nick}` добавлена награда [+] в очередь! Пропишите !claim в игре.", parse_mode="Markdown")
         bot.answer_callback_query(call.id)
         return
 
@@ -159,7 +159,7 @@ def callback_handler(call):
             bot.answer_callback_query(call.id, "Сначала укажите ник игрока!")
             return
         pending_rewards[target_nick.lower()] = "donor_plus_plus"
-        bot.send_message(chat_id, f"✅ Для `{target_nick}` добавлена награда [++] в очередь! Игрок может прописать !claim", parse_mode="Markdown")
+        bot.send_message(chat_id, f"✅ Для `{target_nick}` добавлена награда [++] в очередь! Пропишите !claim в игре.", parse_mode="Markdown")
         bot.answer_callback_query(call.id)
         return
 
@@ -170,7 +170,7 @@ def callback_handler(call):
         pending_removals[target_nick.lower()] = True
         pending_rewards.pop(target_nick.lower(), None)
         user_subscriptions.pop(target_nick.lower(), None)
-        bot.send_message(chat_id, f"❌ Запрос на снятие доната добавлен для `{target_nick}`!", parse_mode="Markdown")
+        bot.send_message(chat_id, f"❌ Запрос на снятие донатов добавлен для `{target_nick}`! Пропишите !claim в игре для применения.", parse_mode="Markdown")
         bot.answer_callback_query(call.id)
         return
 
@@ -231,7 +231,14 @@ def callback_handler(call):
         
         bot.edit_message_text(
             chat_id=chat_id, message_id=call.message.message_id, 
-            text="💎 **Привилегия [+] (Plus):**\n• 5 домов\n• RTP 25k\n• Префикс [+]\n\n*⚠️ Товар цифровой, возврату не подлежит.*\n\nВыберите срок:", 
+            text="💎 **Привилегия [+] (Plus):**\n"
+                 "• 5 точек дома во всех измерениях (включая Энд) (!sethome / !home)\n"
+                 "• Случайный телепорт RTP 25k блоков (!rtp)\n"
+                 "• Телепортация к игрокам и запросы ТП (!tp <ник> / !tpa)\n"
+                 "• Право исключать игроков из племени (!tribe kick)\n"
+                 "• Увеличенный лимит участников племени до 6 человек\n"
+                 "• Персональный префикс [+]\n\n"
+                 "*⚠️ Товар цифровой, возврату не подлежит.*\n\nВыберите срок:", 
             reply_markup=markup, parse_mode="Markdown"
         )
         bot.answer_callback_query(call.id)
@@ -245,7 +252,18 @@ def callback_handler(call):
         
         bot.edit_message_text(
             chat_id=chat_id, message_id=call.message.message_id, 
-            text="👑 **Привилегия [++] (PlusPlus):**\n• 7 домов\n• RTP 30k\n• Префикс [++]\n\n*⚠️ Товар цифровой, возврату не подлежит.*\n\nВыберите срок:", 
+            text="👑 **Привилегия [++] (PlusPlus):**\n"
+                 "• 7 точек дома во всех измерениях (включая Энд) (!sethome / !home)\n"
+                 "• RTP в обычном мире 30k блоков (!rtp)\n"
+                 "• Безопасный RTP в Энде: радиус 10k блоков (от 1500 до 10000 блоков, чтобы не падать в пустоту между главным и внешними островами) (!rtpend)\n"
+                 "• Телепорт по точным координатам в пределах 30k блоков (!tp X Z)\n"
+                 "• Установка и телепорт на базу племени (!tribe sethome / home)\n"
+                 "• Команда самоубийства (!kill)\n"
+                 "• Телепортация к игрокам и запросы ТП (!tp <ник> / !tpa)\n"
+                 "• Право исключать игроков из племени (!tribe kick)\n"
+                 "• Увеличенный лимит участников племени до 8 человек\n"
+                 "• Персональный префикс [++]\n\n"
+                 "*⚠️ Товар цифровой, возврату не подлежит.*\n\nВыберите срок:", 
             reply_markup=markup, parse_mode="Markdown"
         )
         bot.answer_callback_query(call.id)
@@ -285,23 +303,28 @@ def successful_payment(message):
     payload = message.successful_payment.invoice_payload
 
     days = 90 if "3m" in payload else 30
-    if "plusplus" in payload:
-        tag = "donor_plus_plus"
-        tier_name = "PlusPlus [++]"
-    else:
-        tag = "donor_plus"
-        tier_name = "Plus [+]"
+    is_plusplus = "plusplus" in payload
+    
+    new_tag = "donor_plus_plus" if is_plusplus else "donor_plus"
+    new_tier_name = "PlusPlus [++]" if is_plusplus else "Plus [+]"
 
-    pending_rewards[nickname.lower()] = tag
+    # Защита от понижения: если у игрока уже активен PlusPlus, покупка Plus не сбрасывает его до Plus
+    current_sub = user_subscriptions.get(nickname.lower())
+    if current_sub and datetime.now() <= current_sub["expires_at"]:
+        if current_sub["tier"] == "PlusPlus [++]" and not is_plusplus:
+            new_tag = "donor_plus_plus"
+            new_tier_name = "PlusPlus [++]"
+
+    pending_rewards[nickname.lower()] = new_tag
     expires = datetime.now() + timedelta(days=days)
-    user_subscriptions[nickname.lower()] = {"tier": tier_name, "expires_at": expires}
+    user_subscriptions[nickname.lower()] = {"tier": new_tier_name, "expires_at": expires}
 
     markup = InlineKeyboardMarkup()
     markup.add(InlineKeyboardButton("🏠 На главную", callback_data="back_menu"))
 
     bot.send_message(
         chat_id,
-        f"✅ **Оплата прошла успешно!**\n\n👤 Игрок: `{nickname}`\n💎 Ранг: **{tier_name}**\n\nЗайдите на сервер и напишите команду **`!claim`**, чтобы забрать донат!",
+        f"✅ **Оплата прошла успешно!**\n\n👤 Игрок: `{nickname}`\n💎 Ранг: **{new_tier_name}**\n\nЗайдите на сервер и напишите команду **`!claim`**, чтобы активировать ранг!",
         reply_markup=markup,
         parse_mode="Markdown"
     )
