@@ -1,12 +1,12 @@
 import os
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime
 import telebot
 from telebot.types import LabeledPrice, InlineKeyboardMarkup, InlineKeyboardButton
 from flask import Flask, request, jsonify
 from threading import Thread
 
-BOT_VERSION = "v5.2-PERKS-FULL"
+BOT_VERSION = "v6.0-PERMANENT-SALE"
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 
 app = Flask('')
@@ -54,10 +54,9 @@ Thread(target=run_flask, daemon=True).start()
 bot = telebot.TeleBot(BOT_TOKEN)
 user_nicknames = {}
 
-PRICE_PLUS_1M = 100
-PRICE_PLUS_3M = 270   
-PRICE_PLUSPLUS_1M = 200
-PRICE_PLUSPLUS_3M = 540 
+# Новые постоянные цены со скидкой 25% (акция)
+PRICE_PLUS = 150       # Обычная цена будет 200 ⭐ (+25%)
+PRICE_PLUSPLUS = 300   # Обычная цена будет 400 ⭐ (+25%)
 
 @bot.message_handler(commands=['start', 'help'])
 def cmd_start(message):
@@ -81,13 +80,13 @@ def save_nickname(message):
 
 def show_main_menu(chat_id, nickname):
     markup = InlineKeyboardMarkup()
-    markup.add(InlineKeyboardButton("💎 Купить Донат [+] (100 ⭐)", callback_data="menu_plus"))
-    markup.add(InlineKeyboardButton("👑 Купить Донат [++] (200 ⭐)", callback_data="menu_plusplus"))
+    markup.add(InlineKeyboardButton("🔥 СКИДКА 25%! Донат [+] (150 ⭐)", callback_data="menu_plus"))
+    markup.add(InlineKeyboardButton("🔥 СКИДКА 25%! Донат [++] (300 ⭐)", callback_data="menu_plusplus"))
     markup.add(InlineKeyboardButton("⚙️ Другое / Настройки", callback_data="menu_more"))
 
     bot.send_message(
         chat_id,
-        f"👤 Твой ник: **{nickname}**\n\nВыберите привилегию:",
+        f"👤 Твой ник: **{nickname}**\n\nДонат выдается **НАВСЕГДА**! Выберите привилегию:",
         reply_markup=markup,
         parse_mode="Markdown"
     )
@@ -210,13 +209,12 @@ def callback_handler(call):
         markup = InlineKeyboardMarkup()
         markup.add(InlineKeyboardButton("🏠 На главную", callback_data="back_menu"))
 
-        if not sub or datetime.now() > sub["expires_at"]:
+        if not sub:
             bot.send_message(chat_id, f"❌ У `{nickname}` нет активных привилегий.", reply_markup=markup, parse_mode="Markdown")
         else:
-            left = sub["expires_at"] - datetime.now()
             bot.send_message(
                 chat_id,
-                f"⏳ **Статус для `{nickname}`:**\n• Уровень: **{sub['tier']}**\n• Осталось: **{left.days} дн. {left.seconds // 3600} ч.**",
+                f"⏳ **Статус для `{nickname}`:**\n• Уровень: **{sub['tier']}**\n• Срок: **Навсегда (Forever) ♾️**",
                 reply_markup=markup,
                 parse_mode="Markdown"
             )
@@ -225,20 +223,19 @@ def callback_handler(call):
 
     if call.data == "menu_plus":
         markup = InlineKeyboardMarkup()
-        markup.add(InlineKeyboardButton("1 месяц (100 ⭐)", callback_data="buy_plus_1m"))
-        markup.add(InlineKeyboardButton("3 месяца (270 ⭐)", callback_data="buy_plus_3m"))
+        markup.add(InlineKeyboardButton("Купить навсегда (150 ⭐)", callback_data="buy_plus"))
         markup.add(InlineKeyboardButton("🏠 На главную", callback_data="back_menu"))
         
         bot.edit_message_text(
             chat_id=chat_id, message_id=call.message.message_id, 
-            text="💎 **Привилегия [+] (Plus):**\n"
+            text="💎 **Привилегия [+] (Plus) — НАВСЕГДА:**\n"
                  "• 5 точек дома во всех измерениях (включая Энд) (!sethome / !home)\n"
                  "• Случайный телепорт RTP 25k блоков (!rtp)\n"
                  "• Телепортация к игрокам и запросы ТП (!tp <ник> / !tpa)\n"
                  "• Право исключать игроков из племени (!tribe kick)\n"
                  "• Увеличенный лимит участников племени до 6 человек\n"
                  "• Персональный префикс [+]\n\n"
-                 "*⚠️ Товар цифровой, возврату не подлежит.*\n\nВыберите срок:", 
+                 "🔥 **АКЦИЯ:** Скидка 25% (150 ⭐ вместо 200 ⭐)!\n\n*⚠️ Товар цифровой, возврату не подлежит.*", 
             reply_markup=markup, parse_mode="Markdown"
         )
         bot.answer_callback_query(call.id)
@@ -246,16 +243,15 @@ def callback_handler(call):
 
     if call.data == "menu_plusplus":
         markup = InlineKeyboardMarkup()
-        markup.add(InlineKeyboardButton("1 месяц (200 ⭐)", callback_data="buy_plusplus_1m"))
-        markup.add(InlineKeyboardButton("3 месяца (540 ⭐)", callback_data="buy_plusplus_3m"))
+        markup.add(InlineKeyboardButton("Купить навсегда (300 ⭐)", callback_data="buy_plusplus"))
         markup.add(InlineKeyboardButton("🏠 На главную", callback_data="back_menu"))
         
         bot.edit_message_text(
             chat_id=chat_id, message_id=call.message.message_id, 
-            text="👑 **Привилегия [++] (PlusPlus):**\n"
+            text="👑 **Привилегия [++] (PlusPlus) — НАВСЕГДА:**\n"
                  "• 7 точек дома во всех измерениях (включая Энд) (!sethome / !home)\n"
                  "• RTP в обычном мире 30k блоков (!rtp)\n"
-                 "• Безопасный RTP в Энде: радиус 10k блоков (от 1500 до 10000 блоков, чтобы не падать в пустоту между главным и внешними островами) (!rtpend)\n"
+                 "• Безопасный RTP в Энде: радиус 10k блоков (от 1500 до 10000 блоков) (!rtpend)\n"
                  "• Телепорт по точным координатам в пределах 30k блоков (!tp X Z)\n"
                  "• Установка и телепорт на базу племени (!tribe sethome / home)\n"
                  "• Команда самоубийства (!kill)\n"
@@ -263,7 +259,7 @@ def callback_handler(call):
                  "• Право исключать игроков из племени (!tribe kick)\n"
                  "• Увеличенный лимит участников племени до 8 человек\n"
                  "• Персональный префикс [++]\n\n"
-                 "*⚠️ Товар цифровой, возврату не подлежит.*\n\nВыберите срок:", 
+                 "🔥 **АКЦИЯ:** Скидка 25% (300 ⭐ вместо 400 ⭐)!\n\n*⚠️ Товар цифровой, возврату не подлежит.*", 
             reply_markup=markup, parse_mode="Markdown"
         )
         bot.answer_callback_query(call.id)
@@ -281,14 +277,10 @@ def callback_handler(call):
         bot.answer_callback_query(call.id, "⚠️ Сначала введите ник!")
         return
 
-    if call.data == "buy_plus_1m":
-        bot.send_invoice(chat_id=chat_id, title="Донат [+] (1 мес)", description=f"Цифровой товар для {nickname}.", invoice_payload="pay_plus_1m", provider_token="", currency="XTR", prices=[LabeledPrice("Донат", PRICE_PLUS_1M)])
-    elif call.data == "buy_plus_3m":
-        bot.send_invoice(chat_id=chat_id, title="Донат [+] (3 мес)", description=f"Цифровой товар для {nickname}.", invoice_payload="pay_plus_3m", provider_token="", currency="XTR", prices=[LabeledPrice("Донат", PRICE_PLUS_3M)])
-    elif call.data == "buy_plusplus_1m":
-        bot.send_invoice(chat_id=chat_id, title="Донат [++] (1 мес)", description=f"Цифровой товар для {nickname}.", invoice_payload="pay_plusplus_1m", provider_token="", currency="XTR", prices=[LabeledPrice("Донат", PRICE_PLUSPLUS_1M)])
-    elif call.data == "buy_plusplus_3m":
-        bot.send_invoice(chat_id=chat_id, title="Донат [++] (3 мес)", description=f"Цифровой товар для {nickname}.", invoice_payload="pay_plusplus_3m", provider_token="", currency="XTR", prices=[LabeledPrice("Донат", PRICE_PLUSPLUS_3M)])
+    if call.data == "buy_plus":
+        bot.send_invoice(chat_id=chat_id, title="Донат [+] НАВСЕГДА", description=f"Постоянная привилегия для {nickname}.", invoice_payload="pay_plus", provider_token="", currency="XTR", prices=[LabeledPrice("Донат [+]", PRICE_PLUS)])
+    elif call.data == "buy_plusplus":
+        bot.send_invoice(chat_id=chat_id, title="Донат [++] НАВСЕГДА", description=f"Постоянная привилегия для {nickname}.", invoice_payload="pay_plusplus", provider_token="", currency="XTR", prices=[LabeledPrice("Донат [++]", PRICE_PLUSPLUS)])
     
     bot.answer_callback_query(call.id)
 
@@ -302,29 +294,26 @@ def successful_payment(message):
     nickname = user_nicknames.get(chat_id, "Игрок")
     payload = message.successful_payment.invoice_payload
 
-    days = 90 if "3m" in payload else 30
     is_plusplus = "plusplus" in payload
     
     new_tag = "donor_plus_plus" if is_plusplus else "donor_plus"
     new_tier_name = "PlusPlus [++]" if is_plusplus else "Plus [+]"
 
-    # Защита от понижения: если у игрока уже активен PlusPlus, покупка Plus не сбрасывает его до Plus
+    # Защита от понижения: если у игрока уже есть PlusPlus, покупка Plus не заменит его на слабый ранг
     current_sub = user_subscriptions.get(nickname.lower())
-    if current_sub and datetime.now() <= current_sub["expires_at"]:
-        if current_sub["tier"] == "PlusPlus [++]" and not is_plusplus:
-            new_tag = "donor_plus_plus"
-            new_tier_name = "PlusPlus [++]"
+    if current_sub and current_sub["tier"] == "PlusPlus [++]" and not is_plusplus:
+        new_tag = "donor_plus_plus"
+        new_tier_name = "PlusPlus [++]"
 
     pending_rewards[nickname.lower()] = new_tag
-    expires = datetime.now() + timedelta(days=days)
-    user_subscriptions[nickname.lower()] = {"tier": new_tier_name, "expires_at": expires}
+    user_subscriptions[nickname.lower()] = {"tier": new_tier_name}
 
     markup = InlineKeyboardMarkup()
     markup.add(InlineKeyboardButton("🏠 На главную", callback_data="back_menu"))
 
     bot.send_message(
         chat_id,
-        f"✅ **Оплата прошла успешно!**\n\n👤 Игрок: `{nickname}`\n💎 Ранг: **{new_tier_name}**\n\nЗайдите на сервер и напишите команду **`!claim`**, чтобы активировать ранг!",
+        f"✅ **Оплата прошла успешно!**\n\n👤 Игрок: `{nickname}`\n💎 Ранг: **{new_tier_name} (НАВСЕГДА ♾️)**\n\nЗайдите на сервер и напишите команду **`!claim`**, чтобы активировать ранг!",
         reply_markup=markup,
         parse_mode="Markdown"
     )
