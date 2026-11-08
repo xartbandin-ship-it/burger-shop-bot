@@ -34,10 +34,6 @@ app = Flask(__name__)
 # ==========================================
 # 2. БАЗА ДАННЫХ И ОЧЕРЕДЬ (!claim)
 # ==========================================
-# pending_rewards: { "nickname_lower": {"original_name": "Nick", "tag": "donor_plus"} }
-# pending_removals: [ "nickname_lower" ]
-# user_nicknames: { "telegram_id": "MinecraftNick" }
-# owned_ranks: { "nickname_lower": "donor_plus" | "donor_plus_plus" }
 db = {
     "pending_rewards": {},
     "pending_removals": [],
@@ -45,7 +41,7 @@ db = {
     "owned_ranks": {}
 }
 
- waiting_for_nick = {}  # { user_id: "donor_plus" | "donor_plus_plus" | "upgrade" | "change_nick" }
+waiting_for_nick = {}  # Исправлен отступ!
 
 
 def load_db():
@@ -162,7 +158,7 @@ COMMANDS_INFO_TEXT = (
     "💰 *Рынок, Экономика и Награды:*\n"
     "• `!ah` — Открыть Аукцион игроков (покупка, продажа, осмотр прочности/чар и фильтр-воронка)\n"
     "• `!ah sell <цена>` — Быстро выставить предмет в руке на аукцион\n"
-    "• `!orders` — Стол Заказов (заказ любых предметов игры и сдача ресурсов)\n"
+    "• `!orders` — Стол Заказов (осмотр любых заказов, создание своих и сдача ресурсов)\n"
     "• `!sell` (или `!sell hand` / `!sell all`) — Продать ресурсы серверу (автоматически сдает в выгодные заказы игроков!)\n"
     "• `!bounty` — Охота за головами (назначить или посмотреть награды за игроков)\n"
     "• `!bal [ник]` — Посмотреть точный баланс до доллара\n"
@@ -276,7 +272,7 @@ def cmd_admin_give(message):
 
     bot.reply_to(
         message,
-        f"✅ Игроку *{nick}* добавлен ранг `{tag}` в очередь выдачи!\nОн получит его при вводе `!claim` на сервере.",
+        f"✅ Игроку `{nick}` добавлен ранг `{tag}` в очередь выдачи!\nОн получит его при вводе `!claim` на сервере.",
         parse_mode="Markdown"
     )
 
@@ -300,7 +296,7 @@ def cmd_admin_remove(message):
 
     bot.reply_to(
         message,
-        f"🚫 Привилегия игрока *{nick}* помечена на удаление при следующем `!claim`.",
+        f"🚫 Привилегия игрока `{nick}` помечена на удаление при следующем `!claim`.",
         parse_mode="Markdown"
     )
 
@@ -310,7 +306,7 @@ def cmd_admin_queue(message):
     if message.from_user.id != ADMIN_ID:
         return
     rewards_str = "\n".join([f"• `{v['original_name']}` -> `{v['tag']}`" for v in db["pending_rewards"].values()]) or "Пусто"
-    removals_str = ", ".join(db["pending_removals"]) or "Пусто"
+    removals_str = ", ".join([f"`{r}`" for r in db["pending_removals"]]) or "Пусто"
     bot.reply_to(
         message,
         f"📋 *Очередь на выдачу (!claim):*\n{rewards_str}\n\n🗑 *Очередь на снятие:*\n{removals_str}",
@@ -500,7 +496,7 @@ def send_stars_invoice(chat_id, user_id, nick, purchase_type):
         title=title,
         description=description,
         invoice_payload=payload,
-        provider_token="",  # Пустая строка для Telegram Stars (XTR)
+        provider_token="",
         currency="XTR",
         prices=prices
     )
@@ -545,7 +541,6 @@ def got_payment(message):
         parse_mode="Markdown"
     )
 
-    # Уведомление администратору с кнопкой аннулирования
     try:
         admin_kb = InlineKeyboardMarkup()
         admin_kb.add(
@@ -558,7 +553,7 @@ def got_payment(message):
         bot.send_message(
             ADMIN_ID,
             f"💰 *НОВАЯ ПОКУПКА В МАГАЗИНЕ!*\n\n"
-            f"👤 Покупатель: {username_str}\n"
+            f"👤 Покупатель: `{username_str}`\n"
             f"🎮 Ник в игре: `{nick}`\n"
             f"💎 Выдан тег: `{tag}`\n"
             f"⭐️ Сумма: *{stars_paid} XTR*",
