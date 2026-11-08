@@ -17,15 +17,15 @@ from telebot.types import (
 # ==========================================
 BOT_TOKEN = os.getenv("BOT_TOKEN", "ВСТАВЬТЕ_ВАШ_ТОКЕН_ЗДЕСЬ")
 ADMIN_ID = 7437101853  # Ваш Telegram ID администратора
+ADMIN_USERNAME = "meburger34"  # Юзернейм для доступа по слову dev324
 
 SERVER_IP = "burgersmp.org"
 SERVER_PORT = "19132"
 TELEGRAM_CHAT = "https://t.me/burgerchatsmp"
 
-# Цены в Telegram Stars (XTR) — Донат НАВСЕГДА
 PRICE_PLUS = 150
 PRICE_PLUS_PLUS = 300
-PRICE_UPGRADE = 150  # Доплата с [+] до [++]
+PRICE_UPGRADE = 150
 
 DATA_FILE = "shop_data.json"
 
@@ -33,7 +33,7 @@ bot = telebot.TeleBot(BOT_TOKEN)
 app = Flask(__name__)
 
 # ==========================================
-# 2. БАЗА ДАННЫХ И ОЧЕРЕДЬ (!claim)
+# 2. БАЗА ДАННЫХ И СОСТОЯНИЯ АДМИНА
 # ==========================================
 db = {
     "pending_rewards": {},
@@ -42,7 +42,8 @@ db = {
     "owned_ranks": {}
 }
 
-waiting_for_nick = {}
+waiting_for_nick = {}      # Для покупки доната игроками
+admin_dev_mode = {}        # Для режима dev324 (какой админ какому нику выдает донат)
 
 
 def load_db():
@@ -112,15 +113,15 @@ def check_removal():
 
 
 # ==========================================
-# 4. ТЕКСТЫ ПРИВИЛЕГИЙ И КОМАНД (БЕЗ ТП ПО КООРДИНАТАМ)
+# 4. ТЕКСТЫ И КЛАВИАТУРЫ (СТАРИННЫЙ ДИЗАЙН)
 # ==========================================
 WELCOME_TEXT = (
     "🍔 *Добро пожаловать в магазин BURGER SMP!*\n\n"
     f"🌍 *IP сервера:* `{SERVER_IP}`\n"
     f"🔌 *Порт:* `{SERVER_PORT}`\n"
     f"💬 *Наш чат:* {TELEGRAM_CHAT}\n\n"
-    "🔥 *Все привилегии покупаются НАВСЕГДА!* Оплата происходит официально через *Telegram Stars (⭐️)*.\n"
-    "После оплаты просто зайдите на сервер и введите в чат команду `!claim` — донат выдается автоматически за секунду!"
+    "🔥 *Все привилегии покупаются НАВСЕГДА!* Оплата происходит через *Telegram Stars (⭐️)*.\n"
+    "После оплаты введите в игре команду `!claim` для получения доната!"
 )
 
 RANKS_INFO_TEXT = (
@@ -132,61 +133,29 @@ RANKS_INFO_TEXT = (
     "• Радиус рандом-ТП (`!rtp`): *20,000 блоков*\n\n"
     "━━━━━━━━━━━━━━━\n"
     f"🔹 *Привилегия BURGER [+] — {PRICE_PLUS} ⭐️ (Навсегда):*\n"
-    "• Красивый префикс `[+]` в чате и над головой\n"
-    "• Увеличенный лимит домов: *5 домов* (вместо 3)\n"
-    "• Слотов на Аукционе (`!ah`): *15 слотов* (вместо 10)\n"
-    "• Слотов в Столе Заказов (`!orders`): *7 заказов* (вместо 5)\n"
-    "• Увеличенный радиус `!rtp`: *25,000 блоков*\n"
-    "• Право исключать участников из племени: `!tribe kick <ник>`\n\n"
+    "• Префикс `[+]` в чате и над головой\n"
+    "• 5 домов | 15 слотов `!ah` | 7 слотов `!orders` | RTP 25k | кик из клана\n\n"
     "━━━━━━━━━━━━━━━\n"
     f"👑 *Привилегия BURGER [++] — {PRICE_PLUS_PLUS} ⭐️ (Навсегда):*\n"
-    "• Элитный золотой префикс `[++]` в чате и над головой\n"
-    "• Максимальный лимит домов: *7 домов*\n"
-    "• Слотов на Аукционе (`!ah`): *20 слотов*\n"
-    "• Слотов в Столе Заказов (`!orders`): *10 заказов*\n"
-    "• Максимальный радиус `!rtp`: *30,000 блоков*\n"
-    "• Эксклюзивный РТП в Энд: *`!rtpend`* (с плавным падением)\n"
-    "• Установка общей базы племени: *`!tribe sethome`* (телепорт для клана по `!tribe home`)\n"
-    "• Право исключать участников из племени: `!tribe kick <ник>`\n"
-    "• Быстрое самоубийство командой: *`!kill`*"
+    "• Золотой префикс `[++]` в чате и над головой\n"
+    "• 7 домов | 20 слотов `!ah` | 10 слотов `!orders` | RTP 30k\n"
+    "• `!rtpend`, установка базы клана `!tribe sethome` и `!kill`"
 )
 
 COMMANDS_INFO_TEXT = (
-    "📜 *ВСЕ КОМАНДЫ СЕРВЕРА BURGER SMP:*\n\n"
-    "⚡ *Быстрое меню (для телефона и ПК):*\n"
-    "• Отправьте просто *`!`* (один восклицательный знак) в чат — откроется удобное меню всех систем сервера!\n"
-    "• `!settings` — Настройка звуков и правой мини-панели\n\n"
-    "💰 *Рынок, Экономика и Награды:*\n"
-    "• `!ah` — Открыть Аукцион игроков (покупка, продажа, осмотр прочности/чар и фильтр-воронка)\n"
-    "• `!ah sell <цена>` — Быстро выставить предмет в руке на аукцион\n"
-    "• `!orders` — Стол Заказов (осмотр любых заказов, создание своих и сдача ресурсов)\n"
-    "• `!sell` (или `!sell hand` / `!sell all`) — Продать ресурсы серверу (автоматически сдает в выгодные заказы игроков!)\n"
-    "• `!bounty` — Охота за головами (назначить или посмотреть награды за игроков)\n"
-    "• `!bal [ник]` — Посмотреть точный баланс до доллара\n"
-    "• `!pay <ник> <сумма>` — Перевести деньги игроку\n"
-    "• `!baltop` — Топ-5 богачей сервера\n"
-    "• `!killtop` — Топ-5 PvP бойцов и рейтинга\n\n"
-    "🧭 *Телепортация и Выживание:*\n"
-    "• `!spawn` — Телепорт на спавн\n"
-    "• `!rtp` — Случайный телепорт в обычном мире (20k / 25k `[+]` / 30k `[++]`)\n"
-    "• `!rtpnether` — Случайный телепорт в Незере (с огнестойкостью)\n"
-    "• `!rtpend` — Случайный телепорт в Энде *(только для `[++]`)*\n"
-    "• `!tp <ник>` — Запрос на телепорт к игроку (`!tpaccept` / `!tpdeny`)\n"
-    "• `!sethome <имя>` / `!home <имя>` / `!delhome <имя>` / `!homes` — Управление домами\n\n"
-    "⚔️ *Племена (Кланы) и Прочее:*\n"
-    "• `!tribe create <название>` — Создать племя\n"
-    "• `!tribe invite <ник>` / `!tribe join` / `!tribe leave` / `!tribe info` / `!tribe list`\n"
-    "• `!tribe kick <ник>` — Кикнуть участника *(для `[+]` и `[++]`)*\n"
-    "• `!tribe sethome` / `!tribe home` — База племени *(установка для `[++]`)*\n"
-    "• `!stats [ник]` — Подробная статистика игрока\n"
-    "• `!nv` — Бесплатное ночное зрение на 2 часа\n"
-    "• `!report <ник> <причина>` — Отправить жалобу администрации\n"
-    "• `!claim` — Получить купленный донат на сервере"
+    "📜 *КОМАНДЫ СЕРВЕРА BURGER SMP:*\n\n"
+    "⚡ В игре отправьте *`!`* в чат для открытия быстрого меню команд!\n\n"
+    "• `!ah` — Аукцион (с воронкой сортировки и осмотром предметов)\n"
+    "• `!orders` — Стол Заказов (с карточкой осмотра заказа)\n"
+    "• `!sell` — Продажа ресурсов (авто-сдача в выгодные заказы)\n"
+    "• `!bounty` — Охота за головами\n"
+    "• `!bal` / `!pay` / `!baltop` / `!killtop` — Экономика и топы\n"
+    "• `!spawn` / `!rtp` / `!tp` / `!home` — Телепортация и дома\n"
+    "• `!tribe` — Управление кланом\n"
+    "• `!claim` — Забрать купленный донат"
 )
 
-# ==========================================
-# 5. КЛАВИАТУРЫ БОТА
-# ==========================================
+
 def get_main_reply_kb():
     kb = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     kb.add(
@@ -205,30 +174,17 @@ def get_shop_inline_kb(user_id):
     current_rank = db["owned_ranks"].get(saved_nick.lower()) if saved_nick else None
 
     kb.add(
-        InlineKeyboardButton(
-            f"🔹 Купить BURGER [+] — {PRICE_PLUS} ⭐️ (Навсегда)",
-            callback_data="buy_donor_plus"
-        ),
-        InlineKeyboardButton(
-            f"👑 Купить BURGER [++] — {PRICE_PLUS_PLUS} ⭐️ (Навсегда)",
-            callback_data="buy_donor_plus_plus"
-        )
+        InlineKeyboardButton(f"🔹 Купить BURGER [+] — {PRICE_PLUS} ⭐️", callback_data="buy_donor_plus"),
+        InlineKeyboardButton(f"👑 Купить BURGER [++] — {PRICE_PLUS_PLUS} ⭐️", callback_data="buy_donor_plus_plus")
     )
     if current_rank == "donor_plus":
-        kb.add(
-            InlineKeyboardButton(
-                f"⬆️ Апгрейд с [+] до [++] — {PRICE_UPGRADE} ⭐️",
-                callback_data="buy_upgrade"
-            )
-        )
-    kb.add(
-        InlineKeyboardButton("✏️ Изменить мой ник в Minecraft", callback_data="change_nick")
-    )
+        kb.add(InlineKeyboardButton(f"⬆️ Апгрейд с [+] до [++] — {PRICE_UPGRADE} ⭐️", callback_data="buy_upgrade"))
+    kb.add(InlineKeyboardButton("✏️ Изменить мой ник в Minecraft", callback_data="change_nick"))
     return kb
 
 
 # ==========================================
-# 6. ОБРАБОТЧИКИ КОМАНД TELEGRAM
+# 5. ОБРАБОТЧИКИ СООБЩЕНИЙ И СЛОВА dev324
 # ==========================================
 @bot.message_handler(commands=["start"])
 def cmd_start(message):
@@ -238,12 +194,6 @@ def cmd_start(message):
         parse_mode="Markdown",
         reply_markup=get_main_reply_kb()
     )
-    bot.send_message(
-        message.chat.id,
-        "👇 *Выберите привилегию для покупки или ознакомьтесь с описанием:*",
-        parse_mode="Markdown",
-        reply_markup=get_shop_inline_kb(message.from_user.id)
-    )
 
 
 @bot.message_handler(commands=["commands", "help"])
@@ -251,71 +201,54 @@ def cmd_help(message):
     bot.send_message(message.chat.id, COMMANDS_INFO_TEXT, parse_mode="Markdown")
 
 
-@bot.message_handler(commands=["give"])
-def cmd_admin_give(message):
-    if message.from_user.id != ADMIN_ID:
+# Проверка прав администратора для dev324
+def is_dev_admin(user):
+    if user.id == ADMIN_ID:
+        return True
+    if user.username and user.username.lower() == ADMIN_USERNAME.lower():
+        return True
+    return False
+
+
+@bot.message_handler(func=lambda m: m.text and m.text.strip() == "dev324")
+def handle_dev324_trigger(message):
+    if not is_dev_admin(message.from_user):
         return
-    parts = message.text.split()
-    if len(parts) < 3 or parts[2] not in ["donor_plus", "donor_plus_plus"]:
-        bot.reply_to(message, "❌ Использование: `/give <Ник> <donor_plus|donor_plus_plus>`", parse_mode="Markdown")
+    
+    admin_uid = message.from_user.id
+    admin_dev_mode[admin_uid] = "waiting_target_nick"
+    bot.reply_to(message, "⚙️ *Введите точный ник игрока в Minecraft, которым хотите управлять:*", parse_mode="Markdown")
+
+
+@bot.message_handler(func=lambda m: m.from_user.id in admin_dev_mode and admin_dev_mode[m.from_user.id] == "waiting_target_nick")
+def handle_dev_target_nick(message):
+    admin_uid = message.from_user.id
+    target_nick = message.text.strip()
+    
+    if not target_nick or target_nick.startswith("/"):
+        bot.reply_to(message, "❌ Некорректный ник! Попробуйте еще раз:")
         return
 
-    nick = parts[1].strip()
-    tag = parts[2].strip()
-    key = nick.lower()
+    admin_dev_mode[admin_uid] = {"mode": "managing_nick", "nick": target_nick}
 
-    db["pending_rewards"][key] = {"original_name": nick, "tag": tag}
-    db["owned_ranks"][key] = tag
-    if key in db["pending_removals"]:
-        db["pending_removals"].remove(key)
-    save_db()
-
-    bot.reply_to(
-        message,
-        f"✅ Игроку `{nick}` добавлен ранг `{tag}` в очередь выдачи!\nОн получит его при вводе `!claim` на сервере.",
-        parse_mode="Markdown"
+    kb = InlineKeyboardMarkup(row_width=1)
+    kb.add(
+        InlineKeyboardButton(f"🎁 Выдать [+] для {target_nick}", callback_data=f"dev_give_+_{target_nick}"),
+        InlineKeyboardButton(f"🎁 Выдать [++] для {target_nick}", callback_data=f"dev_give_++_{target_nick}"),
+        InlineKeyboardButton(f"❌ Снять все донаты с {target_nick}", callback_data=f"dev_remove_{target_nick}"),
+        InlineKeyboardButton("🏠 На главную", callback_data="dev_cancel")
     )
 
-
-@bot.message_handler(commands=["remove"])
-def cmd_admin_remove(message):
-    if message.from_user.id != ADMIN_ID:
-        return
-    parts = message.text.split()
-    if len(parts) < 2:
-        bot.reply_to(message, "❌ Использование: `/remove <Ник>`", parse_mode="Markdown")
-        return
-
-    nick = parts[1].strip()
-    key = nick.lower()
-    if key in db["pending_rewards"]:
-        del db["pending_rewards"][key]
-    if key not in db["pending_removals"]:
-        db["pending_removals"].append(key)
-    save_db()
-
-    bot.reply_to(
-        message,
-        f"🚫 Привилегия игрока `{nick}` помечена на удаление при следующем `!claim`.",
-        parse_mode="Markdown"
-    )
-
-
-@bot.message_handler(commands=["queue"])
-def cmd_admin_queue(message):
-    if message.from_user.id != ADMIN_ID:
-        return
-    rewards_str = "\n".join([f"• `{v['original_name']}` -> `{v['tag']}`" for v in db["pending_rewards"].values()]) or "Пусто"
-    removals_str = ", ".join([f"`{r}`" for r in db["pending_removals"]]) or "Пусто"
-    bot.reply_to(
-        message,
-        f"📋 *Очередь на выдачу (!claim):*\n{rewards_str}\n\n🗑 *Очередь на снятие:*\n{removals_str}",
-        parse_mode="Markdown"
+    bot.send_message(
+        message.chat.id,
+        f"🛠 *Панель управления игроком: {target_nick}*\nВыберите нужное действие:",
+        parse_mode="Markdown",
+        reply_markup=kb
     )
 
 
 # ==========================================
-# 7. ОБРАБОТКА КНОПОК МЕНЮ И ПОКУПКИ ЗА STARS
+# 6. КНОПКИ ГЛАВНОГО МЕНЮ И DEV-ПАНЕЛИ
 # ==========================================
 @bot.message_handler(func=lambda m: m.text in [
     "🛒 Купить донат",
@@ -326,23 +259,19 @@ def cmd_admin_queue(message):
 ])
 def handle_menu_buttons(message):
     uid = str(message.from_user.id)
+    if message.from_user.id in admin_dev_mode:
+        admin_dev_mode.pop(message.from_user.id)
+
     if message.text == "🛒 Купить донат":
         saved_nick = db["user_nicknames"].get(uid, "Не указан")
         bot.send_message(
             message.chat.id,
-            f"🛒 *МАГАЗИН ПРИВИЛЕГИЙ BURGER SMP*\n"
-            f"👤 Ваш текущий ник: `{saved_nick}`\n\n"
-            "Выберите нужный пакет ниже:",
+            f"🛒 *МАГАЗИН ПРИВИЛЕГИЙ BURGER SMP*\n👤 Ваш ник: `{saved_nick}`\n\nВыберите пакет ниже:",
             parse_mode="Markdown",
             reply_markup=get_shop_inline_kb(message.from_user.id)
         )
     elif message.text == "💎 Описание привилегий":
-        bot.send_message(
-            message.chat.id,
-            RANKS_INFO_TEXT,
-            parse_mode="Markdown",
-            reply_markup=get_shop_inline_kb(message.from_user.id)
-        )
+        bot.send_message(message.chat.id, RANKS_INFO_TEXT, parse_mode="Markdown", reply_markup=get_shop_inline_kb(message.from_user.id))
     elif message.text == "📜 Команды сервера":
         bot.send_message(message.chat.id, COMMANDS_INFO_TEXT, parse_mode="Markdown")
     elif message.text == "👤 Мой ник / Профиль":
@@ -354,22 +283,14 @@ def handle_menu_buttons(message):
         kb.add(InlineKeyboardButton("✏️ Изменить ник", callback_data="change_nick"))
         bot.send_message(
             message.chat.id,
-            f"👤 *ВАШ ПРОФИЛЬ:*\n\n"
-            f"🎮 Ник в Minecraft: `{saved_nick or 'Не привязан'}`\n"
-            f"💎 Статус: `{rank}`\n"
-            f"📦 Ожидает получения в `!claim`: *{in_queue}*",
+            f"👤 *ПРОФИЛЬ:*\n🎮 Ник: `{saved_nick or 'Не привязан'}`\n💎 Статус: `{rank}`\n📦 Ожидает выдачи: *{in_queue}*",
             parse_mode="Markdown",
             reply_markup=kb
         )
     elif message.text == "🌍 IP и Чат сервера":
         bot.send_message(
             message.chat.id,
-            f"🌍 *ДАННЫЕ ДЛЯ ВХОДА НА СЕРВЕР:*\n\n"
-            f"• *Имя:* `Burger SMP`\n"
-            f"• *IP:* `{SERVER_IP}`\n"
-            f"• *Порт:* `{SERVER_PORT}`\n\n"
-            f"💬 *Телеграм-чат игроков:* {TELEGRAM_CHAT}\n"
-            f"⚡ В игре отправьте в чат символ `!` для открытия быстрого меню всех команд!",
+            f"🌍 *IP:* `{SERVER_IP}` | *Порт:* `{SERVER_PORT}`\n💬 *Чат:* {TELEGRAM_CHAT}\n⚡ В игре пишите `!` для быстрого меню!",
             parse_mode="Markdown"
         )
 
@@ -379,32 +300,62 @@ def handle_callbacks(call):
     uid = call.from_user.id
     data = call.data
 
+    if data == "dev_cancel":
+        if uid in admin_dev_mode:
+            admin_dev_mode.pop(uid)
+        bot.edit_message_text("🏠 Панель закрыта.", chat_id=call.message.chat.id, message_id=call.message.message_id)
+        bot.answer_callback_query(call.id)
+        return
+
+    if data.startswith("dev_give_+_") or data.startswith("dev_give_++_") or data.startswith("dev_remove_"):
+        if not is_dev_admin(call.from_user):
+            bot.answer_callback_query(call.id, "Нет прав!", show_alert=True)
+            return
+
+        parts = data.split("_")
+        if data.startswith("dev_remove_"):
+            target_nick = data.replace("dev_remove_", "").strip()
+            key = target_nick.lower()
+            if key in db["pending_rewards"]:
+                del db["pending_rewards"][key]
+            if key not in db["pending_removals"]:
+                db["pending_removals"].append(key)
+            save_db()
+            bot.answer_callback_query(call.id, f"Сняты донаты с {target_nick}!")
+            bot.send_message(call.message.chat.id, f"❌ Все донаты сняты с {target_nick} в очередь !")
+        else:
+            rank_type = "donor_plus" if parts[2] == "+" else "donor_plus_plus"
+            target_nick = parts[3].strip()
+            key = target_nick.lower()
+
+            db["pending_rewards"][key] = {"original_name": target_nick, "tag": rank_type}
+            db["owned_ranks"][key] = rank_type
+            if key in db["pending_removals"]:
+                db["pending_removals"].remove(key)
+            save_db()
+
+            plus_sign = "+" if rank_type == "donor_plus" else "++"
+            bot.answer_callback_query(call.id, f"Выдано {plus_sign} для {target_nick}!")
+            bot.send_message(call.message.chat.id, f"✅ Для {target_nick} добавлена награда {plus_sign} в очередь! Пропишите !claim в игре.")
+
+        if uid in admin_dev_mode:
+            admin_dev_mode.pop(uid)
+        return
+
     if data == "change_nick":
         waiting_for_nick[uid] = "change_nick"
-        bot.send_message(
-            call.message.chat.id,
-            "✏️ *Введите ваш точный никнейм в Minecraft Bedrock* (с учетом пробелов и цифр):",
-            parse_mode="Markdown"
-        )
+        bot.send_message(call.message.chat.id, "✏️ *Введите ваш точный никнейм в Minecraft Bedrock:*", parse_mode="Markdown")
         bot.answer_callback_query(call.id)
         return
 
     if data in ["buy_donor_plus", "buy_donor_plus_plus", "buy_upgrade"]:
-        action_map = {
-            "buy_donor_plus": "donor_plus",
-            "buy_donor_plus_plus": "donor_plus_plus",
-            "buy_upgrade": "upgrade"
-        }
+        action_map = {"buy_donor_plus": "donor_plus", "buy_donor_plus_plus": "donor_plus_plus", "buy_upgrade": "upgrade"}
         chosen_type = action_map[data]
         saved_nick = db["user_nicknames"].get(str(uid))
 
         if not saved_nick:
             waiting_for_nick[uid] = chosen_type
-            bot.send_message(
-                call.message.chat.id,
-                "🎮 *Перед покупкой напишите ваш точный никнейм на сервере Minecraft:*",
-                parse_mode="Markdown"
-            )
+            bot.send_message(call.message.chat.id, "🎮 *Перед покупкой напишите ваш точный никнейм на сервере:*", parse_mode="Markdown")
             bot.answer_callback_query(call.id)
             return
 
@@ -412,34 +363,13 @@ def handle_callbacks(call):
         bot.answer_callback_query(call.id)
         return
 
-    if data.startswith("revoke_"):
-        if uid != ADMIN_ID:
-            bot.answer_callback_query(call.id, "Только для администратора!", show_alert=True)
-            return
-
-        target_nick = data.replace("revoke_", "").strip()
-        key = target_nick.lower()
-        if key in db["pending_rewards"]:
-            del db["pending_rewards"][key]
-        if key not in db["pending_removals"]:
-            db["pending_removals"].append(key)
-        save_db()
-
-        bot.edit_message_text(
-            call.message.text + f"\n\n🚫 [АННУЛИРОВАНО АДМИНИСТРАТОРОМ для {target_nick}]",
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id
-        )
-        bot.answer_callback_query(call.id, f"Донат игрока {target_nick} аннулирован!")
-
 
 @bot.message_handler(func=lambda m: m.from_user.id in waiting_for_nick)
 def handle_nick_input(message):
     uid = message.from_user.id
     nick = message.text.strip()
-
     if len(nick) < 2 or len(nick) > 32 or nick.startswith("/"):
-        bot.reply_to(message, "❌ Пожалуйста, введите корректный ник из Minecraft!")
+        bot.reply_to(message, "❌ Пожалуйста, введите корректный ник!")
         return
 
     mode = waiting_for_nick.pop(uid)
@@ -447,46 +377,18 @@ def handle_nick_input(message):
     save_db()
 
     if mode == "change_nick":
-        bot.reply_to(
-            message,
-            f"✅ Ваш никнейм сохранен как: `{nick}`",
-            parse_mode="Markdown",
-            reply_markup=get_shop_inline_kb(uid)
-        )
+        bot.reply_to(message, f"✅ Ник сохранен: `{nick}`", parse_mode="Markdown", reply_markup=get_shop_inline_kb(uid))
     else:
-        bot.reply_to(
-            message,
-            f"✅ Никнейм `{nick}` сохранен! Формируем счет на оплату...",
-            parse_mode="Markdown"
-        )
         send_stars_invoice(message.chat.id, uid, nick, mode)
 
 
 def send_stars_invoice(chat_id, user_id, nick, purchase_type):
     if purchase_type == "donor_plus":
-        title = "Привилегия BURGER [+] (Навсегда)"
-        description = (
-            f"Выдача привилегии [+] для игрока {nick} НАВСЕГДА: "
-            "5 домов, 15 слотов на Аукционе (!ah), 7 заказов (!orders), RTP 25k и кик из племени."
-        )
-        price = PRICE_PLUS
-        tag = "donor_plus"
+        title, price, tag = "Привилегия BURGER [+] (Навсегда)", PRICE_PLUS, "donor_plus"
     elif purchase_type == "upgrade":
-        title = "Апгрейд с [+] до BURGER [++] (Навсегда)"
-        description = (
-            f"Повышение до [++] для игрока {nick}: "
-            "7 домов, 20 слотов !ah, 10 заказов !orders, RTP 30k, !rtpend, база племени !tribe sethome и !kill."
-        )
-        price = PRICE_UPGRADE
-        tag = "donor_plus_plus"
+        title, price, tag = "Апгрейд с [+] до [++] (Навсегда)", PRICE_UPGRADE, "donor_plus_plus"
     else:
-        title = "Привилегия BURGER [++] (Навсегда)"
-        description = (
-            f"Выдача привилегии [++] для игрока {nick} НАВСЕГДА: "
-            "7 домов, 20 слотов !ah, 10 заказов !orders, RTP 30k, !rtpend, база племени !tribe sethome и !kill."
-        )
-        price = PRICE_PLUS_PLUS
-        tag = "donor_plus_plus"
+        title, price, tag = "Привилегия BURGER [++] (Навсегда)", PRICE_PLUS_PLUS, "donor_plus_plus"
 
     payload = json.dumps({"nick": nick, "tag": tag, "uid": user_id})
     prices = [LabeledPrice(label=title, amount=price)]
@@ -494,7 +396,7 @@ def send_stars_invoice(chat_id, user_id, nick, purchase_type):
     bot.send_invoice(
         chat_id=chat_id,
         title=title,
-        description=description,
+        description=f"Выдача {tag} для {nick} НАВСЕГДА",
         invoice_payload=payload,
         provider_token="",
         currency="XTR",
@@ -512,11 +414,9 @@ def got_payment(message):
     payment_info = message.successful_payment
     try:
         payload = json.loads(payment_info.invoice_payload)
-        nick = payload["nick"]
-        tag = payload["tag"]
+        nick, tag = payload["nick"], payload["tag"]
     except Exception:
-        nick = db["user_nicknames"].get(str(message.from_user.id), "Unknown")
-        tag = "donor_plus"
+        nick, tag = db["user_nicknames"].get(str(message.from_user.id), "Unknown"), "donor_plus"
 
     key = nick.lower()
     db["pending_rewards"][key] = {"original_name": nick, "tag": tag}
@@ -525,47 +425,15 @@ def got_payment(message):
         db["pending_removals"].remove(key)
     save_db()
 
-    rank_display = "BURGER [++]" if tag == "donor_plus_plus" else "BURGER [+]"
-    stars_paid = payment_info.total_amount
-
     bot.send_message(
         message.chat.id,
-        f"🎉 *ОПЛАТА УСПЕШНА! СПАСИБО ЗА ПОДДЕРЖКУ СЕРВЕРА!*\n\n"
-        f"👤 Игрок: `{nick}`\n"
-        f"👑 Привилегия: *{rank_display} (НАВСЕГДА)*\n"
-        f"⭐️ Оплачено: *{stars_paid} Stars*\n\n"
-        f"👉 *КАК ЗАБРАТЬ ДОНАТ:*\n"
-        f"Зайдите на сервер `{SERVER_IP}` и напишите в чат команду:\n"
-        f"`!claim`\n"
-        f"*(или выберите «Забрать покупку (!claim)» в быстром меню `!`)*",
+        f"🎉 *ОПЛАТА УСПЕШНА!*\nИгрок: `{nick}`\nПривилегия выдана навсегда!\nЗайдите в игру и введите:\n`!claim`",
         parse_mode="Markdown"
     )
 
-    try:
-        admin_kb = InlineKeyboardMarkup()
-        admin_kb.add(
-            InlineKeyboardButton(
-                f"🚫 Аннулировать донат ({nick})",
-                callback_data=f"revoke_{nick}"
-            )
-        )
-        username_str = f"@{message.from_user.username}" if message.from_user.username else f"ID: {message.from_user.id}"
-        bot.send_message(
-            ADMIN_ID,
-            f"💰 *НОВАЯ ПОКУПКА В МАГАЗИНЕ!*\n\n"
-            f"👤 Покупатель: `{username_str}`\n"
-            f"🎮 Ник в игре: `{nick}`\n"
-            f"💎 Выдан тег: `{tag}`\n"
-            f"⭐️ Сумма: *{stars_paid} XTR*",
-            parse_mode="Markdown",
-            reply_markup=admin_kb
-        )
-    except Exception as e:
-        print(f"[Admin Notify Error] {e}")
-
 
 # ==========================================
-# 8. ЗАПУСК FLASK И TELEGRAM БОТА (С ЗАЩИТОЙ ОТ 409 CONFLICT)
+# 7. ЗАПУСК БОТА С ЗАЩИТОЙ ОТ 409 КОНФЛИКТА
 # ==========================================
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
@@ -573,7 +441,6 @@ def run_flask():
 
 
 def start_bot_polling():
-    # Ждем 5 секунд перед стартом, чтобы старый контейнер Render успел завершиться
     time.sleep(5)
     while True:
         try:
