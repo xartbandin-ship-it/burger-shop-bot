@@ -1,5 +1,6 @@
 import os
 import json
+import time
 import threading
 from flask import Flask, request, jsonify
 import telebot
@@ -41,7 +42,7 @@ db = {
     "owned_ranks": {}
 }
 
-waiting_for_nick = {}  # Исправлен отступ!
+waiting_for_nick = {}
 
 
 def load_db():
@@ -70,7 +71,7 @@ load_db()
 # ==========================================
 # 3. FLASK API ДЛЯ MINECRAFT СЕРВЕРА (!claim)
 # ==========================================
-@app.route("/", methods=["GET"])
+@app.route("/", methods=["GET", "HEAD"])
 def index():
     return "Burger SMP Shop Bot API is running!", 200
 
@@ -250,7 +251,6 @@ def cmd_help(message):
     bot.send_message(message.chat.id, COMMANDS_INFO_TEXT, parse_mode="Markdown")
 
 
-# --- АДМИН-КОМАНДЫ ДЛЯ ВЛАДЕЛЬЦА (7437101853) ---
 @bot.message_handler(commands=["give"])
 def cmd_admin_give(message):
     if message.from_user.id != ADMIN_ID:
@@ -565,15 +565,29 @@ def got_payment(message):
 
 
 # ==========================================
-# 8. ЗАПУСК FLASK И TELEGRAM БОТА
+# 8. ЗАПУСК FLASK И TELEGRAM БОТА (С ЗАЩИТОЙ ОТ 409 CONFLICT)
 # ==========================================
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
 
 
+def start_bot_polling():
+    # Ждем 5 секунд перед стартом, чтобы старый контейнер Render успел завершиться
+    time.sleep(5)
+    while True:
+        try:
+            bot.remove_webhook()
+            time.sleep(1)
+            print("[BurgerShopBot] Telegram-пуллинг активен!")
+            bot.infinity_polling(timeout=20, long_polling_timeout=10)
+        except Exception as e:
+            print(f"[Polling Retry] Ожидание освобождения токена (409): {e}")
+            time.sleep(5)
+
+
 if __name__ == "__main__":
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
-    print("[BurgerShopBot] Flask API и Telegram-бот запущены!")
-    bot.infinity_polling(skip_pending=True)
+    print("[BurgerShopBot] Flask API запущен! Подключаем Telegram-бота...")
+    start_bot_polling()
